@@ -1,2 +1,2 @@
 # Blossom234698lol-.lua
-The cheat to all your needs.
+ keep in mind this was entirely made with AI. Don't expect goodness
