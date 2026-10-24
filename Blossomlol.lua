@@ -37,8 +37,9 @@ local Settings = {
 	ESPVisCheck = false, ESPTeamColor = false,
 	ESPMaxDistance = 1000, ESPThickness = 2, ESPCorner = 0.3,
 	-- effects
+	UIFX = true,               -- click bursts + cursor glow/sparks inside the menu
 	MenuPetals = true, ScreenPetals = false, PetalAmount = 24,
-	MenuFog = true, WorldFog = false, FogDistance = 600,
+	WorldFog = false, FogDistance = 600,
 	-- HUD
 	HUDWatermark = true,
 }
@@ -157,15 +158,6 @@ local wash = new("Frame", { Size = UDim2.new(1, 0, 0, 200), BackgroundColor3 = C
 new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(0.9, 1) }, wash)
 onAccent(function(c) wash.BackgroundColor3 = c end)
 
-local fogBands = {}
-for _, cfg in ipairs({ { 520, 0.93, 22 }, { 720, 0.95, 14 }, { 400, 0.92, 31 } }) do
-	local f = new("Frame", { Size = UDim2.new(0, cfg[1], 1, 0), BackgroundColor3 = Color3.fromRGB(255, 225, 240), BorderSizePixel = 0 }, panel)
-	new("UIGradient", { Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, cfg[2]), NumberSequenceKeypoint.new(1, 1),
-	}) }, f)
-	table.insert(fogBands, { f = f, w = cfg[1], spd = cfg[3] })
-end
-
 -- border (accent-tinted) + tiny gray corner brackets
 local borderFrames, BORDER_T = {}, 2
 for _, p in ipairs({
@@ -201,16 +193,16 @@ local function updateFit()
 end
 
 ----------------------------------------------------------------
--- Click effects (rows are plain clipped frames so scrolling clips correctly)
+-- Click effects on rows (ripple, press squish, hover bar)
 ----------------------------------------------------------------
 local function ripple(host, x, y)
-	local rel = Vector2.new(x, y) - host.AbsolutePosition
+	local rel = (Vector2.new(x, y) - host.AbsolutePosition) / rootScale.Scale
 	local r = new("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(rel.X, rel.Y), Size = UDim2.fromOffset(0, 0),
 		BackgroundColor3 = Settings.FOVColor, BackgroundTransparency = 0.7, BorderSizePixel = 0, ZIndex = 5,
 	}, host)
 	round(r)
-	local m = math.max(host.AbsoluteSize.X, host.AbsoluteSize.Y) * 2.4
+	local m = math.max(host.AbsoluteSize.X, host.AbsoluteSize.Y) / rootScale.Scale * 2.4
 	tween(r, { Size = UDim2.fromOffset(m, m), BackgroundTransparency = 1 }, 0.55)
 	task.delay(0.6, function() r:Destroy() end)
 end
@@ -576,14 +568,14 @@ local COLUMNS = {
 		{ t = "slider", text = "Circle thickness", key = "FOVThickness", min = 1, max = 6, suffix = "px" },
 	} },
 	{ title = "Effects", items = {
-		{ t = "section", text = "HUD" },
-		{ t = "toggle", text = "Watermark", key = "HUDWatermark" },
+		{ t = "section", text = "MENU" },
+		{ t = "toggle", text = "Click + cursor effects", key = "UIFX" },
+		{ t = "toggle", text = "Watermark HUD", key = "HUDWatermark" },
 		{ t = "section", text = "BLOSSOMS" },
 		{ t = "toggle", text = "Menu blossoms", key = "MenuPetals" },
 		{ t = "toggle", text = "Screen blossoms", key = "ScreenPetals" },
 		{ t = "slider", text = "Blossom amount", key = "PetalAmount", min = 4, max = 60 },
-		{ t = "section", text = "FOG" },
-		{ t = "toggle", text = "Menu fog", key = "MenuFog" },
+		{ t = "section", text = "WORLD FOG" },
 		{ t = "toggle", text = "World fog", key = "WorldFog" },
 		{ t = "slider", text = "Fog distance", key = "FogDistance", min = 150, max = 1500, suffix = " studs" },
 		{ t = "section", text = "THEME" },
@@ -667,26 +659,99 @@ local screenGui = new("ScreenGui", { Name = "BlossomPetals", ResetOnSpawn = fals
 local screenPool = makePetals(new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, screenGui), 60, 0.25)
 
 ----------------------------------------------------------------
--- Lock-on marker: slowly spinning circle with brackets inside, on the torso
+-- Menu cursor + click effects (soft glow follows the cursor, sparks trail it,
+-- clicking anywhere in the menu fires a ring + spark burst)
+----------------------------------------------------------------
+local fxLayer = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 30 }, panel)
+local glowOuter = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(170, 170), BackgroundTransparency = 0.95, BorderSizePixel = 0, ZIndex = 30, Visible = false }, fxLayer)
+round(glowOuter)
+local glowInner = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(80, 80), BackgroundTransparency = 0.9, BorderSizePixel = 0, ZIndex = 30, Visible = false }, fxLayer)
+round(glowInner)
+onAccent(function(c) glowOuter.BackgroundColor3, glowInner.BackgroundColor3 = c, c end)
+
+local function insidePanel(p)
+	local rel = Vector2.new(p.X, p.Y) - panel.AbsolutePosition
+	local sz = panel.AbsoluteSize
+	return rel.X >= 0 and rel.Y >= 0 and rel.X <= sz.X and rel.Y <= sz.Y
+end
+local function localPos(p)
+	return (Vector2.new(p.X, p.Y) - panel.AbsolutePosition) / rootScale.Scale
+end
+
+local function sparks(x, y, count, dist)
+	for _ = 1, count do
+		local s = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(4, 4),
+			BackgroundColor3 = Settings.FOVColor, BorderSizePixel = 0, ZIndex = 31, Rotation = math.random(0, 90),
+		}, fxLayer)
+		local a, d = math.random() * math.pi * 2, dist * (0.5 + math.random())
+		tween(s, {
+			Position = UDim2.fromOffset(x + math.cos(a) * d, y + math.sin(a) * d),
+			BackgroundTransparency = 1, Size = UDim2.fromOffset(1, 1),
+		}, 0.45 + math.random() * 0.3)
+		task.delay(0.9, function() s:Destroy() end)
+	end
+end
+
+local function clickBurst(x, y)
+	local r = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(x, y), Size = UDim2.fromOffset(0, 0), BackgroundTransparency = 1, ZIndex = 31 }, fxLayer)
+	round(r)
+	local st = new("UIStroke", { Color = Settings.FOVColor, Thickness = 2 }, r)
+	tween(r, { Size = UDim2.fromOffset(74, 74) }, 0.45)
+	tween(st, { Transparency = 1 }, 0.45)
+	sparks(x, y, 7, 36)
+	task.delay(0.5, function() r:Destroy() end)
+end
+
+local cursorTarget, cursorPos, lastSpark = nil, Vector2.zero, Vector2.zero
+UIS.InputChanged:Connect(function(i)
+	if i.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+	if Settings.UIFX and menuOpen and insidePanel(i.Position) then
+		local p = localPos(i.Position)
+		cursorTarget = p
+		if (p - lastSpark).Magnitude > 20 then
+			lastSpark = p
+			sparks(p.X, p.Y, 1, 14)
+		end
+	else
+		cursorTarget = nil
+	end
+end)
+UIS.InputBegan:Connect(function(i)
+	if Settings.UIFX and menuOpen and i.UserInputType == Enum.UserInputType.MouseButton1 and insidePanel(i.Position) then
+		local p = localPos(i.Position)
+		clickBurst(p.X, p.Y)
+	end
+end)
+
+local function updateCursorFX(dt)
+	if cursorTarget and Settings.UIFX and menuOpen then
+		if not glowOuter.Visible then cursorPos = cursorTarget end
+		cursorPos = cursorPos:Lerp(cursorTarget, math.clamp(dt * 14, 0, 1))
+		glowOuter.Visible, glowInner.Visible = true, true
+		glowOuter.Position = UDim2.fromOffset(cursorPos.X, cursorPos.Y)
+		glowInner.Position = glowOuter.Position
+	else
+		glowOuter.Visible, glowInner.Visible = false, false
+	end
+end
+
+----------------------------------------------------------------
+-- Lock-on marker: small solid-color brackets, slowly spinning on the torso
 ----------------------------------------------------------------
 local markerGui = new("ScreenGui", { Name = "BlossomMarker", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 6 }, playerGui)
 local marker = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(60, 60), BackgroundTransparency = 1, Visible = false }, markerGui)
-local ring = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, marker)
-round(ring)
-local ringStroke = new("UIStroke", { Thickness = 1.5 }, ring)
-local spin = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.62, 0.62), BackgroundTransparency = 1 }, marker)
+local spin = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, marker)
 local markerParts = {}
 for _, c in ipairs({ { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } }) do
 	for _, horiz in ipairs({ true, false }) do
 		table.insert(markerParts, new("Frame", {
 			AnchorPoint = Vector2.new(c[1], c[2]), Position = UDim2.fromScale(c[1], c[2]), BorderSizePixel = 0,
-			Size = horiz and UDim2.new(0.32, 0, 0, 2) or UDim2.new(0, 2, 0.32, 0),
+			Size = horiz and UDim2.new(0.3, 0, 0, 2) or UDim2.new(0, 2, 0.3, 0),
 		}, spin))
 	end
 end
-local markerDot = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(3, 3), BorderSizePixel = 0 }, marker)
 onAccent(function(c)
-	ringStroke.Color, markerDot.BackgroundColor3 = c, c
 	for _, f in ipairs(markerParts) do f.BackgroundColor3 = c end
 end)
 
@@ -700,7 +765,7 @@ local function updateMarker(t)
 			if sp.Z > 0 then
 				local a = camera:WorldToViewportPoint(tp.Position + Vector3.new(0, 2.2, 0))
 				local b = camera:WorldToViewportPoint(tp.Position - Vector3.new(0, 2.6, 0))
-				local sz = math.clamp(math.abs(b.Y - a.Y) * 0.5 * Settings.MarkerSize / 100, 28, 170)
+				local sz = math.clamp(math.abs(b.Y - a.Y) * 0.5 * Settings.MarkerSize / 100, 30, 180)
 				marker.Position = UDim2.fromOffset(sp.X, sp.Y)
 				marker.Size = UDim2.fromOffset(sz, sz)
 				spin.Rotation = (t * Settings.MarkerSpin) % 360
@@ -764,7 +829,7 @@ local function updateHuds(dt)
 end
 
 ----------------------------------------------------------------
--- Ambient loop (fog, blossoms, marker, HUD, world fog)
+-- Ambient loop (blossoms, cursor fx, marker, HUD, world fog)
 ----------------------------------------------------------------
 local origFog = { Lighting.FogStart, Lighting.FogEnd, Lighting.FogColor }
 local fogApplied = false
@@ -774,14 +839,11 @@ RunService.RenderStepped:Connect(function(dt)
 	local vp = camera.ViewportSize
 
 	if root.Visible then
-		for _, b in ipairs(fogBands) do
-			b.f.Visible = Settings.MenuFog
-			if Settings.MenuFog then b.f.Position = UDim2.fromOffset(-b.w + (t * b.spd) % (PANEL_W + b.w), 0) end
-		end
 		stepPetals(menuPool, Settings.MenuPetals and math.ceil(Settings.PetalAmount * 0.5) or 0, dt, t, PANEL_W, PANEL_H)
 	end
 	stepPetals(screenPool, Settings.ScreenPetals and Settings.PetalAmount or 0, dt, t, vp.X, vp.Y)
 
+	updateCursorFX(dt)
 	updateMarker(t)
 	updateHuds(dt)
 
