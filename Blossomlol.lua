@@ -866,4 +866,4 @@ RunService:BindToRenderStep("MoonAssist", Enum.RenderPriority.Camera.Value + 1, 
 	local newYaw = cyaw + dyaw * alpha * (Settings.HStrength / 100)
 	local newPitch = cp + (gp - cp) * alpha * (Settings.VStrength / 100)
 	camera.CFrame = CFrame.new(cf.Position) * CFrame.fromOrientation(newPitch, newYaw, 0)
-end)
+end) 
