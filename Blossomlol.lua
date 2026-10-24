@@ -1,17 +1,19 @@
--- Moon Assist (LocalScript) -> StarterPlayer > StarterPlayerScripts
+-- Blossom.lol (LocalScript) -> StarterPlayer > StarterPlayerScripts
 -- Fully client-side: no RemoteEvents, no server scripts.
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local TextService = game:GetService("TextService")
 local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 local camera = Workspace.CurrentCamera
 
 ----------------------------------------------------------------
--- SETTINGS (all editable live via _G.MoonAssist)
+-- SETTINGS (all editable live via _G.Blossom)
 ----------------------------------------------------------------
 local Settings = {
 	Enabled = false,
@@ -21,34 +23,36 @@ local Settings = {
 	FOV = 150, MaxDistance = 500,
 	Smoothness = 0.2,          -- 1 = snap, lower = smoother (Smoothing slider)
 	HStrength = 100, VStrength = 100,
-	Deadzone = 0,              -- degrees
-	Prediction = 0,            -- seconds of velocity lead
+	Deadzone = 0, Prediction = 0,
 	MouseActiveOnly = true, MoveTimeout = 0.15, MoveThreshold = 1,
 	StickyTarget = false,
 	TeamCheck = true, WallCheck = true, IgnoreForceField = true,
 	-- visuals
 	ShowFOV = true, FOVFill = true, FOVThickness = 2,
-	FOVColor = Color3.fromRGB(152, 255, 200), UIScale = 100,
+	FOVColor = Color3.fromRGB(255, 150, 200), UIScale = 100,
+	TargetMarker = true, MarkerSize = 100, MarkerSpin = 35,
 	-- ESP (opposing team)
 	EnemyESP = false, ESPNames = true, ESPHealth = true, ESPTool = true,
 	ESPFill = false, ESPTracers = false, ESPHeadDot = true,
 	ESPVisCheck = false, ESPTeamColor = false,
 	ESPMaxDistance = 1000, ESPThickness = 2, ESPCorner = 0.3,
+	-- effects
+	MenuPetals = true, ScreenPetals = false, PetalAmount = 24,
+	MenuFog = true, WorldFog = false, FogDistance = 600,
+	-- HUD
+	HUDWatermark = true,
 }
-_G.MoonAssist = Settings
+_G.Blossom = Settings
 
 local MENU_KEY = Enum.KeyCode.RightShift
--- Logo: paste a transparent-PNG ID here later and set LOGO_BACKDROP to Color3.fromRGB(28, 28, 34)
-local LOGO_ID = "rbxassetid://83544421466497"
-local LOGO_BACKDROP = Color3.fromRGB(255, 255, 255)
-local PANEL_W, PANEL_H = 960, 540
+local VERSION = ""   -- type your version here, e.g. "v1.0"
+local PANEL_W, PANEL_H = 1120, 540
 
 local COLORS = {}
 for _, c in ipairs({
-	{ "Mint", 152, 255, 200 }, { "Cyan", 90, 220, 255 }, { "Blue", 90, 160, 255 },
-	{ "Purple", 170, 110, 255 }, { "Pink", 255, 130, 200 }, { "Red", 255, 85, 85 },
-	{ "Orange", 255, 165, 70 }, { "Gold", 255, 215, 90 }, { "Lime", 170, 255, 90 },
-	{ "White", 255, 255, 255 },
+	{ "Blossom", 255, 150, 200 }, { "Mint", 152, 255, 200 }, { "Cyan", 90, 220, 255 }, { "Blue", 90, 160, 255 },
+	{ "Purple", 170, 110, 255 }, { "Red", 255, 85, 85 }, { "Orange", 255, 165, 70 },
+	{ "Gold", 255, 215, 90 }, { "Lime", 170, 255, 90 }, { "White", 255, 255, 255 },
 }) do
 	local col = Color3.fromRGB(c[2], c[3], c[4])
 	table.insert(COLORS, { name = c[1], color = col, value = col })
@@ -61,17 +65,18 @@ local PRESETS = {
 }
 
 ----------------------------------------------------------------
--- Theme + helpers
+-- Theme + helpers (sharp corners everywhere; round() only for circles)
 ----------------------------------------------------------------
-local BG         = Color3.fromRGB(12, 12, 16)
-local CARD       = Color3.fromRGB(26, 26, 34)
-local CARD_HOVER = Color3.fromRGB(37, 37, 48)
-local STROKE     = Color3.fromRGB(48, 48, 62)
-local TEXT       = Color3.fromRGB(240, 240, 247)
-local SUBTEXT    = Color3.fromRGB(135, 135, 152)
-local OFF_TRACK  = Color3.fromRGB(56, 56, 70)
+local BG         = Color3.fromRGB(13, 11, 16)
+local CARD       = Color3.fromRGB(27, 24, 33)
+local CARD_HOVER = Color3.fromRGB(40, 34, 48)
+local STROKE     = Color3.fromRGB(52, 46, 64)
+local TEXT       = Color3.fromRGB(244, 240, 248)
+local DIM        = Color3.fromRGB(176, 170, 192)
+local SUBTEXT    = Color3.fromRGB(145, 137, 160)
+local OFF_TRACK  = Color3.fromRGB(60, 54, 74)
+local BRACKET    = Color3.fromRGB(125, 122, 136)
 local FONT, FONT_MED, FONT_BOLD = Enum.Font.Gotham, Enum.Font.GothamMedium, Enum.Font.GothamBold
-local PILL = UDim.new(1, 0)
 
 local function new(class, props, parent)
 	local inst = Instance.new(class)
@@ -79,7 +84,7 @@ local function new(class, props, parent)
 	inst.Parent = parent
 	return inst
 end
-local function corner(inst, r) return new("UICorner", { CornerRadius = r }, inst) end
+local function round(inst, r) return new("UICorner", { CornerRadius = r or UDim.new(1, 0) }, inst) end
 local function addStroke(inst)
 	return new("UIStroke", { Color = STROKE, Thickness = 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, inst)
 end
@@ -95,8 +100,20 @@ local function tween(inst, props, time, style, dir)
 	t:Play()
 	return t
 end
+-- tiny gray L-brackets inset at all four corners of a frame
+local function addBrackets(parent, inset, len, thick, z)
+	for _, c in ipairs({ { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } }) do
+		for _, horiz in ipairs({ true, false }) do
+			new("Frame", {
+				AnchorPoint = Vector2.new(c[1], c[2]),
+				Position = UDim2.new(c[1], c[1] == 0 and inset or -inset, c[2], c[2] == 0 and inset or -inset),
+				Size = horiz and UDim2.fromOffset(len, thick) or UDim2.fromOffset(thick, len),
+				BackgroundColor3 = BRACKET, BorderSizePixel = 0, ZIndex = z,
+			}, parent)
+		end
+	end
+end
 
--- Anything using the accent color registers here so it updates live
 local accentFns = {}
 local function onAccent(fn) table.insert(accentFns, fn) fn(Settings.FOVColor) end
 local function setAccent(c)
@@ -104,12 +121,15 @@ local function setAccent(c)
 	for _, fn in ipairs(accentFns) do fn(c) end
 end
 
+local lockedTarget = nil
+local menuOpen, baseScale, fit = true, 1, 1
+
 ----------------------------------------------------------------
 -- FOV circle
 ----------------------------------------------------------------
-local circleGui = new("ScreenGui", { Name = "MoonAssistCircle", ResetOnSpawn = false, IgnoreGuiInset = true }, playerGui)
+local circleGui = new("ScreenGui", { Name = "BlossomCircle", ResetOnSpawn = false, IgnoreGuiInset = true }, playerGui)
 local circle = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 0.94, BorderSizePixel = 0 }, circleGui)
-corner(circle, PILL)
+round(circle)
 local circleStroke = new("UIStroke", { Thickness = 2, Transparency = 0.35 }, circle)
 onAccent(function(c) circleStroke.Color = c circle.BackgroundColor3 = c end)
 
@@ -123,29 +143,56 @@ end
 ----------------------------------------------------------------
 -- Menu shell
 ----------------------------------------------------------------
-local menuGui = new("ScreenGui", { Name = "MoonAssistMenu", ResetOnSpawn = false, DisplayOrder = 10 }, playerGui)
+local menuGui = new("ScreenGui", { Name = "BlossomMenu", ResetOnSpawn = false, DisplayOrder = 10 }, playerGui)
 local modal = new("TextButton", { Size = UDim2.fromOffset(0, 0), BackgroundTransparency = 1, Text = "", Modal = true }, menuGui)
 
-local menuOpen, baseScale, fit = true, 1, 1
-local panel = new("CanvasGroup", {
+local root = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(PANEL_W, PANEL_H), BackgroundColor3 = BG, BorderSizePixel = 0, GroupTransparency = 1,
+	Size = UDim2.fromOffset(PANEL_W, PANEL_H), BackgroundTransparency = 1,
 }, menuGui)
-corner(panel, UDim.new(0, 24))
-local panelStroke = addStroke(panel)
-panelStroke.Thickness = 1.5
-onAccent(function(c) panelStroke.Color = STROKE:Lerp(c, 0.35) end)
-local panelScale = new("UIScale", { Scale = 0.94 }, panel)
+local rootScale = new("UIScale", { Scale = 0.94 }, root)
+local panel = new("CanvasGroup", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = BG, BorderSizePixel = 0, GroupTransparency = 1 }, root)
 
--- soft accent glow along the top (rounded to match the panel)
-local glow = new("Frame", { Size = UDim2.new(1, 0, 0, 200), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0 }, panel)
-corner(glow, UDim.new(0, 24))
-new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(0.88, 1) }, glow)
-onAccent(function(c) glow.BackgroundColor3 = c end)
+local wash = new("Frame", { Size = UDim2.new(1, 0, 0, 200), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0 }, panel)
+new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(0.9, 1) }, wash)
+onAccent(function(c) wash.BackgroundColor3 = c end)
+
+local fogBands = {}
+for _, cfg in ipairs({ { 520, 0.93, 22 }, { 720, 0.95, 14 }, { 400, 0.92, 31 } }) do
+	local f = new("Frame", { Size = UDim2.new(0, cfg[1], 1, 0), BackgroundColor3 = Color3.fromRGB(255, 225, 240), BorderSizePixel = 0 }, panel)
+	new("UIGradient", { Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, cfg[2]), NumberSequenceKeypoint.new(1, 1),
+	}) }, f)
+	table.insert(fogBands, { f = f, w = cfg[1], spd = cfg[3] })
+end
+
+-- border (accent-tinted) + tiny gray corner brackets
+local borderFrames, BORDER_T = {}, 2
+for _, p in ipairs({
+	{ UDim2.fromOffset(0, 0), UDim2.new(1, 0, 0, BORDER_T) }, { UDim2.new(0, 0, 1, -BORDER_T), UDim2.new(1, 0, 0, BORDER_T) },
+	{ UDim2.fromOffset(0, 0), UDim2.new(0, BORDER_T, 1, 0) }, { UDim2.new(1, -BORDER_T, 0, 0), UDim2.new(0, BORDER_T, 1, 0) },
+}) do
+	table.insert(borderFrames, new("Frame", { Position = p[1], Size = p[2], BorderSizePixel = 0, ZIndex = 14 }, panel))
+end
+onAccent(function(c)
+	local col = STROKE:Lerp(c, 0.55)
+	for _, f in ipairs(borderFrames) do f.BackgroundColor3 = col end
+end)
+addBrackets(panel, 7, 10, 1, 15)
+
+local title = new("TextLabel", {
+	Position = UDim2.fromOffset(22, 15), Size = UDim2.fromOffset(0, 14), AutomaticSize = Enum.AutomaticSize.X,
+	BackgroundTransparency = 1, TextTransparency = 1, RichText = true, Font = FONT_BOLD, TextSize = 12,
+	TextColor3 = TEXT, TextXAlignment = Enum.TextXAlignment.Left, Text = "", ZIndex = 20,
+}, panel)
+onAccent(function(c)
+	title.Text = 'Blossom<font color="#' .. c:ToHex() .. '">.lol</font>'
+		.. (VERSION ~= "" and ('  <font size="10" color="#918aa0">' .. VERSION .. '</font>') or "")
+end)
 
 local function applyScale()
 	baseScale = fit * Settings.UIScale / 100
-	if menuOpen then panelScale.Scale = baseScale end
+	if menuOpen then rootScale.Scale = baseScale end
 end
 local function updateFit()
 	local vp = camera.ViewportSize
@@ -154,7 +201,7 @@ local function updateFit()
 end
 
 ----------------------------------------------------------------
--- Click effects (ripple, press squish, hover glow)
+-- Click effects (rows are plain clipped frames so scrolling clips correctly)
 ----------------------------------------------------------------
 local function ripple(host, x, y)
 	local rel = Vector2.new(x, y) - host.AbsolutePosition
@@ -162,7 +209,7 @@ local function ripple(host, x, y)
 		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(rel.X, rel.Y), Size = UDim2.fromOffset(0, 0),
 		BackgroundColor3 = Settings.FOVColor, BackgroundTransparency = 0.7, BorderSizePixel = 0, ZIndex = 5,
 	}, host)
-	corner(r, PILL)
+	round(r)
 	local m = math.max(host.AbsoluteSize.X, host.AbsoluteSize.Y) * 2.4
 	tween(r, { Size = UDim2.fromOffset(m, m), BackgroundTransparency = 1 }, 0.55)
 	task.delay(0.6, function() r:Destroy() end)
@@ -170,16 +217,18 @@ end
 
 local function attachFX(row, stroke, onClick)
 	local scale = new("UIScale", { Scale = 1 }, row)
-	local btn = new("TextButton", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 10,
-	}, row)
+	local hbar = new("Frame", { Size = UDim2.new(0, 0, 1, 0), BorderSizePixel = 0, ZIndex = 6 }, row)
+	onAccent(function(c) hbar.BackgroundColor3 = c end)
+	local btn = new("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 10 }, row)
 	btn.MouseEnter:Connect(function()
 		tween(row, { BackgroundColor3 = CARD_HOVER })
 		tween(stroke, { Color = Settings.FOVColor, Transparency = 0.55 })
+		tween(hbar, { Size = UDim2.new(0, 3, 1, 0) }, 0.15)
 	end)
 	btn.MouseLeave:Connect(function()
 		tween(row, { BackgroundColor3 = CARD })
 		tween(stroke, { Color = STROKE, Transparency = 0 })
+		tween(hbar, { Size = UDim2.new(0, 0, 1, 0) }, 0.15)
 	end)
 	btn.InputBegan:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
@@ -196,45 +245,27 @@ local function attachFX(row, stroke, onClick)
 	return btn
 end
 
-local function makeRow(parent, order, height, radius)
-	local row = new("CanvasGroup", {
-		Size = UDim2.new(1, 0, 0, height), BackgroundColor3 = CARD, BorderSizePixel = 0, LayoutOrder = order,
+local function makeRow(parent, order, height)
+	local row = new("Frame", {
+		Size = UDim2.new(1, 0, 0, height), BackgroundColor3 = CARD, BorderSizePixel = 0, LayoutOrder = order, ClipsDescendants = true,
 	}, parent)
-	corner(row, radius or PILL)
 	return row, addStroke(row)
 end
 
 ----------------------------------------------------------------
--- Header (logo, title, status) + dragging
+-- Header (status) + dragging
 ----------------------------------------------------------------
-local header = new("Frame", { Position = UDim2.fromOffset(18, 14), Size = UDim2.new(1, -36, 0, 52), BackgroundTransparency = 1 }, panel)
-
-local logoWrap = new("Frame", { Position = UDim2.fromOffset(0, 4), Size = UDim2.fromOffset(44, 44), BackgroundColor3 = LOGO_BACKDROP, BorderSizePixel = 0 }, header)
-corner(logoWrap, PILL)
-local logoStroke = new("UIStroke", { Thickness = 2, Transparency = 0.2 }, logoWrap)
-onAccent(function(c) logoStroke.Color = c end)
-TweenService:Create(logoStroke, TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Transparency = 0.85 }):Play()
-new("ImageLabel", {
-	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.82, 0.82),
-	BackgroundTransparency = 1, Image = LOGO_ID, ScaleType = Enum.ScaleType.Fit,
-}, logoWrap)
+local header = new("Frame", { Position = UDim2.fromOffset(22, 22), Size = UDim2.new(1, -44, 0, 36), BackgroundTransparency = 1 }, panel)
 new("TextLabel", {
-	Position = UDim2.fromOffset(56, 6), Size = UDim2.new(0.5, 0, 0, 24), BackgroundTransparency = 1, Text = "Moon Assist",
-	Font = FONT_BOLD, TextSize = 21, TextColor3 = TEXT, TextXAlignment = Enum.TextXAlignment.Left,
-}, header)
-new("TextLabel", {
-	Position = UDim2.fromOffset(56, 31), Size = UDim2.new(0.5, 0, 0, 16), BackgroundTransparency = 1, Text = "Client-side  •  RightShift to hide",
-	Font = FONT, TextSize = 11, TextColor3 = SUBTEXT, TextXAlignment = Enum.TextXAlignment.Left,
+	Size = UDim2.new(0.6, 0, 1, 0), BackgroundTransparency = 1, Text = "Client-side  •  RightShift to hide",
+	Font = FONT, TextSize = 12, TextColor3 = SUBTEXT, TextXAlignment = Enum.TextXAlignment.Left,
 }, header)
 
 local statusPill = new("Frame", {
-	AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(176, 32),
-	BackgroundColor3 = CARD, BorderSizePixel = 0,
+	AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(176, 32), BackgroundColor3 = CARD, BorderSizePixel = 0,
 }, header)
-corner(statusPill, PILL)
 addStroke(statusPill)
 local statusDot = new("Frame", { Position = UDim2.fromOffset(14, 12), Size = UDim2.fromOffset(8, 8), BackgroundColor3 = SUBTEXT, BorderSizePixel = 0 }, statusPill)
-corner(statusDot, PILL)
 local statusLbl = new("TextLabel", {
 	Position = UDim2.fromOffset(30, 0), Size = UDim2.new(1, -38, 1, 0), BackgroundTransparency = 1, Text = "Off",
 	Font = FONT_MED, TextSize = 12, TextColor3 = SUBTEXT, TextXAlignment = Enum.TextXAlignment.Left,
@@ -253,18 +284,22 @@ local function setStatus(text, active)
 	paintStatus()
 end
 
-new("Frame", { Position = UDim2.fromOffset(18, 72), Size = UDim2.new(1, -36, 0, 1), BackgroundColor3 = STROKE, BorderSizePixel = 0 }, panel)
+new("Frame", { Position = UDim2.fromOffset(22, 66), Size = UDim2.new(1, -44, 0, 1), BackgroundColor3 = STROKE, BorderSizePixel = 0 }, panel)
 
 local dragStart, startPos
-header.InputBegan:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-		dragStart, startPos = i.Position, panel.Position
-	end
-end)
+local function makeDraggable(f)
+	f.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragStart, startPos = i.Position, root.Position
+		end
+	end)
+end
+makeDraggable(header)
+makeDraggable(title)
 UIS.InputChanged:Connect(function(i)
 	if dragStart and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
 		local d = i.Position - dragStart
-		panel.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+		root.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
 	end
 end)
 UIS.InputEnded:Connect(function(i)
@@ -277,25 +312,24 @@ end)
 local function makeSection(parent, order, text)
 	local f = new("Frame", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, LayoutOrder = order }, parent)
 	local dot = new("Frame", { Position = UDim2.fromOffset(8, 9), Size = UDim2.fromOffset(4, 4), BorderSizePixel = 0 }, f)
-	corner(dot, PILL)
 	onAccent(function(c) dot.BackgroundColor3 = c end)
+	local w = math.ceil(TextService:GetTextSize(text, 11, FONT_BOLD, Vector2.new(400, 20)).X)
 	new("TextLabel", {
-		Position = UDim2.fromOffset(20, 0), Size = UDim2.new(1, -20, 1, 0), BackgroundTransparency = 1, Text = text,
+		Position = UDim2.fromOffset(20, 0), Size = UDim2.fromOffset(w + 2, 22), BackgroundTransparency = 1, Text = text,
 		Font = FONT_BOLD, TextSize = 11, TextColor3 = SUBTEXT, TextXAlignment = Enum.TextXAlignment.Left,
 	}, f)
+	new("Frame", { Position = UDim2.new(0, 30 + w, 0.5, 0), Size = UDim2.new(1, -(30 + w), 0, 1), BackgroundColor3 = STROKE, BorderSizePixel = 0 }, f)
 end
 
 local function makeSwitch(parent, getState)
 	local track = new("Frame", {
-		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(40, 22),
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(38, 20),
 		BackgroundColor3 = OFF_TRACK, BorderSizePixel = 0,
 	}, parent)
-	corner(track, PILL)
 	local knob = new("Frame", {
-		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0), Size = UDim2.fromOffset(16, 16),
+		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0), Size = UDim2.fromOffset(14, 14),
 		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
 	}, track)
-	corner(knob, PILL)
 	local function refresh(animate)
 		local on = getState()
 		local pos = on and UDim2.new(0, 21, 0.5, 0) or UDim2.new(0, 3, 0.5, 0)
@@ -303,8 +337,6 @@ local function makeSwitch(parent, getState)
 		if animate then
 			tween(knob, { Position = pos }, 0.22, Enum.EasingStyle.Back)
 			tween(track, { BackgroundColor3 = col })
-			tween(knob, { Size = UDim2.fromOffset(19, 16) }, 0.08)
-			task.delay(0.08, function() tween(knob, { Size = UDim2.fromOffset(16, 16) }, 0.15) end)
 		else
 			knob.Position, track.BackgroundColor3 = pos, col
 		end
@@ -315,20 +347,22 @@ end
 
 local function makeToggle(parent, order, text, key)
 	local row, st = makeRow(parent, order, 40)
-	new("TextLabel", {
+	local lbl = new("TextLabel", {
 		Position = UDim2.fromOffset(16, 0), Size = UDim2.new(1, -72, 1, 0), BackgroundTransparency = 1, Text = text,
 		Font = FONT_MED, TextSize = 13, TextColor3 = TEXT, TextXAlignment = Enum.TextXAlignment.Left,
 	}, row)
 	local refresh = makeSwitch(row, function() return Settings[key] end)
+	local function paint() tween(lbl, { TextColor3 = Settings[key] and TEXT or DIM }, 0.15) end
+	lbl.TextColor3 = Settings[key] and TEXT or DIM
 	attachFX(row, st, function()
 		Settings[key] = not Settings[key]
 		refresh(true)
+		paint()
 	end)
 end
 
 local function makeSlider(parent, order, text, suffix, min, max, initial, onChange)
 	local row = new("Frame", { Size = UDim2.new(1, 0, 0, 58), BackgroundColor3 = CARD, BorderSizePixel = 0, LayoutOrder = order }, parent)
-	corner(row, UDim.new(0, 20))
 	local st = addStroke(row)
 	new("TextLabel", {
 		Position = UDim2.fromOffset(16, 8), Size = UDim2.new(0.6, -16, 0, 18), BackgroundTransparency = 1, Text = text,
@@ -340,19 +374,15 @@ local function makeSlider(parent, order, text, suffix, min, max, initial, onChan
 	}, row)
 	local hit = new("Frame", { Position = UDim2.fromOffset(16, 32), Size = UDim2.new(1, -32, 0, 20), BackgroundTransparency = 1 }, row)
 	local track = new("Frame", {
-		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.new(1, 0, 0, 6),
+		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.new(1, 0, 0, 4),
 		BackgroundColor3 = OFF_TRACK, BorderSizePixel = 0,
 	}, hit)
-	corner(track, PILL)
 	local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Settings.FOVColor, BorderSizePixel = 0 }, track)
-	corner(fill, PILL)
 	local knob = new("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.fromOffset(14, 14),
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.fromOffset(8, 16),
 		BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0,
 	}, track)
-	corner(knob, PILL)
-	local glowS = new("UIStroke", { Thickness = 0, Transparency = 0.55 }, knob)
-	onAccent(function(c) fill.BackgroundColor3 = c glowS.Color = c end)
+	onAccent(function(c) fill.BackgroundColor3 = c end)
 
 	local function set(v)
 		v = math.clamp(math.floor(v + 0.5), min, max)
@@ -372,8 +402,7 @@ local function makeSlider(parent, order, text, suffix, min, max, initial, onChan
 	hit.InputBegan:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
 			drag, dragStart = true, nil
-			tween(knob, { Size = UDim2.fromOffset(18, 18) }, 0.1)
-			tween(glowS, { Thickness = 6 }, 0.15)
+			tween(knob, { Size = UDim2.fromOffset(10, 20) }, 0.1)
 			fromX(i.Position.X)
 		end
 	end)
@@ -385,8 +414,7 @@ local function makeSlider(parent, order, text, suffix, min, max, initial, onChan
 	UIS.InputEnded:Connect(function(i)
 		if drag and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
 			drag = false
-			tween(knob, { Size = UDim2.fromOffset(14, 14) }, 0.1)
-			tween(glowS, { Thickness = 0 }, 0.15)
+			tween(knob, { Size = UDim2.fromOffset(8, 16) }, 0.1)
 			tween(st, { Color = STROKE, Transparency = 0 })
 		end
 	end)
@@ -404,19 +432,13 @@ local function makeDropdown(parent, order, labelText, items, initialIndex, onSel
 		Position = UDim2.fromOffset(16, 0), Size = UDim2.new(0.4, 0, 1, 0), BackgroundTransparency = 1, Text = labelText,
 		Font = FONT_MED, TextSize = 13, TextColor3 = TEXT, TextXAlignment = Enum.TextXAlignment.Left,
 	}, head)
-
-	-- chevron drawn from two small bars (no font glyph needed)
-	local chev = new("Frame", {
-		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -16, 0.5, 0), Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1,
-	}, head)
+	local chev = new("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -16, 0.5, 0), Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1 }, head)
 	for _, side in ipairs({ -1, 1 }) do
-		local arm = new("Frame", {
+		new("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5 + side * -0.18, 0, 0.5, 0), Size = UDim2.fromOffset(8, 2),
 			Rotation = side * -45, BackgroundColor3 = SUBTEXT, BorderSizePixel = 0,
 		}, chev)
-		corner(arm, PILL)
 	end
-
 	local valueLbl = new("TextLabel", {
 		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, hasColor and -54 or -38, 0.5, 0), Size = UDim2.new(0.6, -40, 1, 0),
 		BackgroundTransparency = 1, Text = "", Font = FONT, TextSize = 12, TextColor3 = SUBTEXT, TextXAlignment = Enum.TextXAlignment.Right,
@@ -424,7 +446,6 @@ local function makeDropdown(parent, order, labelText, items, initialIndex, onSel
 	local headDot
 	if hasColor then
 		headDot = new("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -38, 0.5, 0), Size = UDim2.fromOffset(12, 12), BorderSizePixel = 0 }, head)
-		corner(headDot, PILL)
 	end
 
 	local list = new("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Visible = false, LayoutOrder = 2 }, holder)
@@ -450,8 +471,7 @@ local function makeDropdown(parent, order, labelText, items, initialIndex, onSel
 			Font = FONT_MED, TextSize = 12, TextColor3 = TEXT, TextXAlignment = Enum.TextXAlignment.Left,
 		}, r)
 		if it.color then
-			local d = new("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0.5, 0), Size = UDim2.fromOffset(10, 10), BackgroundColor3 = it.color, BorderSizePixel = 0 }, r)
-			corner(d, PILL)
+			new("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0.5, 0), Size = UDim2.fromOffset(10, 10), BackgroundColor3 = it.color, BorderSizePixel = 0 }, r)
 		end
 		attachFX(r, rs, function()
 			selected = i
@@ -465,7 +485,7 @@ local function makeDropdown(parent, order, labelText, items, initialIndex, onSel
 end
 
 ----------------------------------------------------------------
--- Columns (everything on one screen, no tabs)
+-- Columns (everything on one screen)
 ----------------------------------------------------------------
 local setters = {}
 
@@ -538,18 +558,34 @@ local COLUMNS = {
 		{ t = "toggle", text = "Tracers", key = "ESPTracers" },
 		{ t = "slider", text = "Max distance", key = "ESPMaxDistance", min = 100, max = 3000, suffix = " studs" },
 	} },
-	{ title = "Filters & visuals", items = {
+	{ title = "Filters", items = {
 		{ t = "section", text = "ACTIVATION" },
 		{ t = "toggle", text = "Only while mouse moves", key = "MouseActiveOnly" },
 		{ t = "slider", text = "Activity window", key = "MoveTimeout", scale = 0.001, min = 50, max = 500, suffix = " ms" },
 		{ t = "section", text = "FILTERS" },
 		{ t = "toggle", text = "Team check", key = "TeamCheck" },
-		{ t = "toggle", text = "Wall check", key = "WallCheck" },
+		{ t = "toggle", text = "Wall check (aims visible part)", key = "WallCheck" },
 		{ t = "toggle", text = "Ignore forcefields", key = "IgnoreForceField" },
+		{ t = "section", text = "TARGET MARKER" },
+		{ t = "toggle", text = "Show lock-on marker", key = "TargetMarker" },
+		{ t = "slider", text = "Marker size", key = "MarkerSize", min = 50, max = 150, suffix = "%" },
+		{ t = "slider", text = "Spin speed", key = "MarkerSpin", min = 0, max = 200, suffix = "°/s" },
 		{ t = "section", text = "FOV CIRCLE" },
 		{ t = "toggle", text = "Show FOV circle", key = "ShowFOV" },
 		{ t = "toggle", text = "Circle fill", key = "FOVFill" },
 		{ t = "slider", text = "Circle thickness", key = "FOVThickness", min = 1, max = 6, suffix = "px" },
+	} },
+	{ title = "Effects", items = {
+		{ t = "section", text = "HUD" },
+		{ t = "toggle", text = "Watermark", key = "HUDWatermark" },
+		{ t = "section", text = "BLOSSOMS" },
+		{ t = "toggle", text = "Menu blossoms", key = "MenuPetals" },
+		{ t = "toggle", text = "Screen blossoms", key = "ScreenPetals" },
+		{ t = "slider", text = "Blossom amount", key = "PetalAmount", min = 4, max = 60 },
+		{ t = "section", text = "FOG" },
+		{ t = "toggle", text = "Menu fog", key = "MenuFog" },
+		{ t = "toggle", text = "World fog", key = "WorldFog" },
+		{ t = "slider", text = "Fog distance", key = "FogDistance", min = 150, max = 1500, suffix = " studs" },
 		{ t = "section", text = "THEME" },
 		{ t = "drop", text = "Accent color", key = "FOVColor", items = COLORS, set = setAccent },
 		{ t = "slider", text = "Menu scale", key = "UIScale", min = 70, max = 130, suffix = "%",
@@ -557,14 +593,14 @@ local COLUMNS = {
 	} },
 }
 
-local body = new("Frame", { Position = UDim2.fromOffset(18, 84), Size = UDim2.new(1, -36, 1, -102), BackgroundTransparency = 1 }, panel)
+local body = new("Frame", { Position = UDim2.fromOffset(22, 78), Size = UDim2.new(1, -44, 1, -100), BackgroundTransparency = 1 }, panel)
 new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 12), SortOrder = Enum.SortOrder.LayoutOrder }, body)
 
 for ci, colDef in ipairs(COLUMNS) do
-	local col = new("Frame", { Size = UDim2.new(1 / 3, -8, 1, 0), BackgroundTransparency = 1, LayoutOrder = ci }, body)
-
-	-- column header pill (with its own master switch where it has one)
+	local col = new("Frame", { Size = UDim2.new(0.25, -9, 1, 0), BackgroundTransparency = 1, LayoutOrder = ci }, body)
 	local hrow, hst = makeRow(col, 1, 42)
+	local bar = new("Frame", { Size = UDim2.new(0, 3, 1, 0), BorderSizePixel = 0 }, hrow)
+	onAccent(function(c) bar.BackgroundColor3 = c end)
 	new("TextLabel", {
 		Position = UDim2.fromOffset(16, 0), Size = UDim2.new(1, -72, 1, 0), BackgroundTransparency = 1, Text = colDef.title,
 		Font = FONT_BOLD, TextSize = 14, TextColor3 = TEXT, TextXAlignment = Enum.TextXAlignment.Left,
@@ -577,10 +613,10 @@ for ci, colDef in ipairs(COLUMNS) do
 			refresh(true)
 		end)
 	end
-
 	local scroll = new("ScrollingFrame", {
 		Position = UDim2.fromOffset(0, 52), Size = UDim2.new(1, 0, 1, -52), BackgroundTransparency = 1, BorderSizePixel = 0,
-		ScrollBarThickness = 3, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y,
+		ScrollBarThickness = 3, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y, ClipsDescendants = true,
 	}, col)
 	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, scroll)
 	padding(scroll, 0, 8, 2, 14)
@@ -588,18 +624,193 @@ for ci, colDef in ipairs(COLUMNS) do
 	build(scroll, colDef.items)
 end
 
+----------------------------------------------------------------
+-- Falling blossoms
+----------------------------------------------------------------
+local PETAL_COLORS = {
+	Color3.fromRGB(255, 183, 213), Color3.fromRGB(255, 150, 200), Color3.fromRGB(255, 214, 230), Color3.fromRGB(245, 120, 170),
+}
+local function makePetals(parent, max, transp)
+	local pool = {}
+	for i = 1, max do
+		local w = math.random(7, 12)
+		local f = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(w, math.floor(w * 1.4)),
+			BackgroundColor3 = PETAL_COLORS[math.random(#PETAL_COLORS)], BackgroundTransparency = transp, BorderSizePixel = 0, Visible = false,
+		}, parent)
+		round(f, UDim.new(0.5, 0))
+		pool[i] = {
+			f = f, ready = false, x = 0, y = 0, vy = math.random(28, 60), sway = math.random(8, 22) / 10,
+			amp = math.random(14, 34), phase = math.random() * 6.28, rot = math.random(0, 360), vr = math.random(-90, 90),
+		}
+	end
+	return pool
+end
+local function stepPetals(pool, count, dt, t, W, H)
+	for i, p in ipairs(pool) do
+		if i <= count then
+			if not p.ready then p.x, p.y, p.ready = math.random() * W, math.random() * H, true end
+			p.y += p.vy * dt
+			p.rot += p.vr * dt
+			if p.y > H + 20 then p.y, p.x = -20, math.random() * W end
+			p.f.Visible = true
+			p.f.Rotation = p.rot
+			p.f.Position = UDim2.fromOffset(p.x + math.sin(t * p.sway + p.phase) * p.amp, p.y)
+		else
+			p.f.Visible = false
+		end
+	end
+end
+
+local menuPool = makePetals(new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, panel), 30, 0.35)
+local screenGui = new("ScreenGui", { Name = "BlossomPetals", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 2 }, playerGui)
+local screenPool = makePetals(new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, screenGui), 60, 0.25)
+
+----------------------------------------------------------------
+-- Lock-on marker: slowly spinning circle with brackets inside, on the torso
+----------------------------------------------------------------
+local markerGui = new("ScreenGui", { Name = "BlossomMarker", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 6 }, playerGui)
+local marker = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(60, 60), BackgroundTransparency = 1, Visible = false }, markerGui)
+local ring = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 }, marker)
+round(ring)
+local ringStroke = new("UIStroke", { Thickness = 1.5 }, ring)
+local spin = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.62, 0.62), BackgroundTransparency = 1 }, marker)
+local markerParts = {}
+for _, c in ipairs({ { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } }) do
+	for _, horiz in ipairs({ true, false }) do
+		table.insert(markerParts, new("Frame", {
+			AnchorPoint = Vector2.new(c[1], c[2]), Position = UDim2.fromScale(c[1], c[2]), BorderSizePixel = 0,
+			Size = horiz and UDim2.new(0.32, 0, 0, 2) or UDim2.new(0, 2, 0.32, 0),
+		}, spin))
+	end
+end
+local markerDot = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(3, 3), BorderSizePixel = 0 }, marker)
+onAccent(function(c)
+	ringStroke.Color, markerDot.BackgroundColor3 = c, c
+	for _, f in ipairs(markerParts) do f.BackgroundColor3 = c end
+end)
+
+local function updateMarker(t)
+	local show = false
+	if Settings.Enabled and Settings.TargetMarker and lockedTarget and lockedTarget.Character then
+		local char = lockedTarget.Character
+		local tp = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
+		if tp then
+			local sp = camera:WorldToViewportPoint(tp.Position)
+			if sp.Z > 0 then
+				local a = camera:WorldToViewportPoint(tp.Position + Vector3.new(0, 2.2, 0))
+				local b = camera:WorldToViewportPoint(tp.Position - Vector3.new(0, 2.6, 0))
+				local sz = math.clamp(math.abs(b.Y - a.Y) * 0.5 * Settings.MarkerSize / 100, 28, 170)
+				marker.Position = UDim2.fromOffset(sp.X, sp.Y)
+				marker.Size = UDim2.fromOffset(sz, sz)
+				spin.Rotation = (t * Settings.MarkerSpin) % 360
+				show = true
+			end
+		end
+	end
+	marker.Visible = show
+end
+
+----------------------------------------------------------------
+-- Watermark HUD (same design as the menu)
+----------------------------------------------------------------
+local hudGui = new("ScreenGui", { Name = "BlossomHUD", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 4 }, playerGui)
+local hudFrames = {}
+
+local function makeHud(props)
+	local f = new("CanvasGroup", props, hudGui)
+	f.BackgroundColor3, f.BorderSizePixel = BG, 0
+	local st = new("UIStroke", { Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, f)
+	local bar = new("Frame", { Size = UDim2.new(0, 3, 1, 0), BorderSizePixel = 0, ZIndex = 3 }, f)
+	onAccent(function(c) st.Color = STROKE:Lerp(c, 0.55) bar.BackgroundColor3 = c end)
+	addBrackets(f, 5, 6, 1, 4)
+	table.insert(hudFrames, f)
+
+	-- drag while the menu is open (cursor is free)
+	local ds, sp
+	f.InputBegan:Connect(function(i)
+		if menuOpen and i.UserInputType == Enum.UserInputType.MouseButton1 then ds, sp = i.Position, f.Position end
+	end)
+	UIS.InputChanged:Connect(function(i)
+		if ds and i.UserInputType == Enum.UserInputType.MouseMovement then
+			local d = i.Position - ds
+			f.Position = UDim2.new(sp.X.Scale, sp.X.Offset + d.X, sp.Y.Scale, sp.Y.Offset + d.Y)
+		end
+	end)
+	UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then ds = nil end end)
+	return f
+end
+
+local wm = makeHud({ Position = UDim2.fromOffset(16, 16), Size = UDim2.fromOffset(0, 30), AutomaticSize = Enum.AutomaticSize.X })
+local wmLbl = new("TextLabel", {
+	Position = UDim2.fromOffset(16, 0), Size = UDim2.fromOffset(0, 30), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1,
+	RichText = true, Font = FONT_MED, TextSize = 12, TextColor3 = TEXT, Text = "", TextXAlignment = Enum.TextXAlignment.Left,
+}, wm)
+new("UIPadding", { PaddingRight = UDim.new(0, 28) }, wm)
+
+local hudAcc, hudN, hudTimer = 0, 0, 0
+local function updateHuds(dt)
+	wm.Visible = Settings.HUDWatermark
+	hudAcc += dt hudN += 1 hudTimer += dt
+	if hudTimer >= 0.25 then
+		local fps = math.floor(hudN / hudAcc + 0.5)
+		hudAcc, hudN, hudTimer = 0, 0, 0
+		local ping = math.floor(player:GetNetworkPing() * 1000 + 0.5)
+		local sep = '  <font color="#555064">|</font>  '
+		wmLbl.Text = 'Blossom<font color="#' .. Settings.FOVColor:ToHex() .. '">.lol</font>'
+			.. (VERSION ~= "" and (" " .. VERSION) or "")
+			.. sep .. fps .. " fps" .. sep .. ping .. " ms" .. sep .. os.date("%H:%M")
+	end
+end
+
+----------------------------------------------------------------
+-- Ambient loop (fog, blossoms, marker, HUD, world fog)
+----------------------------------------------------------------
+local origFog = { Lighting.FogStart, Lighting.FogEnd, Lighting.FogColor }
+local fogApplied = false
+
+RunService.RenderStepped:Connect(function(dt)
+	local t = os.clock()
+	local vp = camera.ViewportSize
+
+	if root.Visible then
+		for _, b in ipairs(fogBands) do
+			b.f.Visible = Settings.MenuFog
+			if Settings.MenuFog then b.f.Position = UDim2.fromOffset(-b.w + (t * b.spd) % (PANEL_W + b.w), 0) end
+		end
+		stepPetals(menuPool, Settings.MenuPetals and math.ceil(Settings.PetalAmount * 0.5) or 0, dt, t, PANEL_W, PANEL_H)
+	end
+	stepPetals(screenPool, Settings.ScreenPetals and Settings.PetalAmount or 0, dt, t, vp.X, vp.Y)
+
+	updateMarker(t)
+	updateHuds(dt)
+
+	if Settings.WorldFog then
+		Lighting.FogEnd = Settings.FogDistance
+		Lighting.FogStart = Settings.FogDistance * 0.2
+		Lighting.FogColor = Color3.fromRGB(236, 208, 224)
+		fogApplied = true
+	elseif fogApplied then
+		Lighting.FogStart, Lighting.FogEnd, Lighting.FogColor = origFog[1], origFog[2], origFog[3]
+		fogApplied = false
+	end
+end)
+
 -- Open / close
 local function setMenuOpen(open)
 	menuOpen = open
 	modal.Modal = open
+	for _, h in ipairs(hudFrames) do h.Active = open end
 	if open then
-		panel.Visible = true
+		root.Visible = true
 		tween(panel, { GroupTransparency = 0 }, 0.25)
-		tween(panelScale, { Scale = baseScale }, 0.35, Enum.EasingStyle.Back)
+		tween(title, { TextTransparency = 0 }, 0.25)
+		tween(rootScale, { Scale = baseScale }, 0.35, Enum.EasingStyle.Back)
 	else
 		tween(panel, { GroupTransparency = 1 }, 0.2)
-		tween(panelScale, { Scale = baseScale * 0.94 }, 0.2)
-		task.delay(0.2, function() if not menuOpen then panel.Visible = false end end)
+		tween(title, { TextTransparency = 1 }, 0.2)
+		tween(rootScale, { Scale = baseScale * 0.94 }, 0.2)
+		task.delay(0.2, function() if not menuOpen then root.Visible = false end end)
 	end
 end
 UIS.InputBegan:Connect(function(i, processed)
@@ -613,6 +824,11 @@ setMenuOpen(true)
 -- Targeting helpers
 ----------------------------------------------------------------
 local PART_LIST = { "Head", "UpperTorso", "Torso", "HumanoidRootPart" }
+-- every body part we'll fall back to when the preferred one is covered
+local BODY = {
+	"Head", "UpperTorso", "Torso", "LowerTorso", "HumanoidRootPart",
+	"RightUpperArm", "LeftUpperArm", "RightUpperLeg", "LeftUpperLeg", "Right Arm", "Left Arm", "Right Leg", "Left Leg",
+}
 
 local function isEnemy(plr)
 	if plr == player then return false end
@@ -620,16 +836,18 @@ local function isEnemy(plr)
 	return plr.Team ~= player.Team
 end
 
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+rayParams.RespectCanCollide = true
 local function clearLine(part)
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { player.Character, part.Parent }
+	local filter = { part.Parent }
+	if player.Character then table.insert(filter, player.Character) end
+	rayParams.FilterDescendantsInstances = filter
 	local o = camera.CFrame.Position
-	return Workspace:Raycast(o, part.Position - o, params) == nil
+	return Workspace:Raycast(o, part.Position - o, rayParams) == nil
 end
-local function isVisible(part) return not Settings.WallCheck or clearLine(part) end
 
-local function getAimPart(char)
+local function preferredPart(char)
 	if Settings.TargetPart ~= "Auto" then return char:FindFirstChild(Settings.TargetPart) end
 	local center, best, bd = camera.ViewportSize / 2, nil, nil
 	for _, n in ipairs(PART_LIST) do
@@ -643,6 +861,20 @@ local function getAimPart(char)
 	return best or char:FindFirstChild("HumanoidRootPart")
 end
 
+-- Picks the part to aim at. With wall check on, the preferred part is used when it's
+-- visible; otherwise the first VISIBLE body part is used (e.g. the head above a half
+-- wall). Returns nil only when every part is covered (fully behind a wall).
+local function resolvePart(char)
+	local pref = preferredPart(char)
+	if not Settings.WallCheck then return pref or char:FindFirstChild("HumanoidRootPart") end
+	if pref and clearLine(pref) then return pref end
+	for _, n in ipairs(BODY) do
+		local p = char:FindFirstChild(n)
+		if p and p ~= pref and clearLine(p) then return p end
+	end
+	return nil
+end
+
 local function isValid(plr)
 	if plr == player then return false end
 	if Settings.TeamCheck and plr.Team ~= nil and plr.Team == player.Team then return false end
@@ -650,18 +882,19 @@ local function isValid(plr)
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	if not hum or hum.Health <= 0 then return false end
 	if Settings.IgnoreForceField and char:FindFirstChildOfClass("ForceField") then return false end
-	return getAimPart(char) ~= nil
+	return true
 end
 
 local function candidateScore(plr)
 	if not isValid(plr) then return nil end
-	local part = getAimPart(plr.Character)
+	local part = resolvePart(plr.Character)
+	if not part then return nil end
 	local dist = (part.Position - camera.CFrame.Position).Magnitude
 	if dist > Settings.MaxDistance then return nil end
 	local sp, on = camera:WorldToViewportPoint(part.Position)
 	if not on then return nil end
 	local d = (Vector2.new(sp.X, sp.Y) - camera.ViewportSize / 2).Magnitude
-	if d > Settings.FOV or not isVisible(part) then return nil end
+	if d > Settings.FOV then return nil end
 	if Settings.Priority == "Distance" then return dist end
 	if Settings.Priority == "Health" then return plr.Character:FindFirstChildOfClass("Humanoid").Health end
 	return d
@@ -679,7 +912,7 @@ end
 ----------------------------------------------------------------
 -- Enemy ESP: corner brackets built from GUI frames
 ----------------------------------------------------------------
-local espGui = new("ScreenGui", { Name = "MoonAssistESP", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 5 }, playerGui)
+local espGui = new("ScreenGui", { Name = "BlossomESP", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 5 }, playerGui)
 local espObjs = {}
 
 local function createESP(plr)
@@ -699,7 +932,6 @@ local function createESP(plr)
 	o.hpBg = new("Frame", { BorderSizePixel = 0, BackgroundColor3 = Color3.fromRGB(10, 10, 12), BackgroundTransparency = 0.3 }, holder)
 	o.hpFill = new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), BorderSizePixel = 0 }, o.hpBg)
 	o.dot = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(6, 6), BorderSizePixel = 0 }, holder)
-	corner(o.dot, PILL)
 	espObjs[plr] = o
 	return o
 end
@@ -722,11 +954,11 @@ local function updateESP()
 		if Settings.EnemyESP and isEnemy(plr) then
 			local char = plr.Character
 			local hum = char and char:FindFirstChildOfClass("Humanoid")
-			local root = char and char:FindFirstChild("HumanoidRootPart")
-			if hum and root and hum.Health > 0 then
-				local dist = (root.Position - camera.CFrame.Position).Magnitude
-				local top = camera:WorldToViewportPoint(root.Position + Vector3.new(0, 2.7, 0))
-				local bot = camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3.1, 0))
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if hum and hrp and hum.Health > 0 then
+				local dist = (hrp.Position - camera.CFrame.Position).Magnitude
+				local top = camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 2.7, 0))
+				local bot = camera:WorldToViewportPoint(hrp.Position - Vector3.new(0, 3.1, 0))
 				if dist <= Settings.ESPMaxDistance and top.Z > 0 and bot.Z > 0 then
 					show = true
 					o = o or createESP(plr)
@@ -737,7 +969,7 @@ local function updateESP()
 					local ah = math.max(4, h * Settings.ESPCorner * 0.7)
 
 					local color = (Settings.ESPTeamColor and plr.Team ~= nil) and plr.TeamColor.Color or Settings.FOVColor
-					if Settings.ESPVisCheck and not clearLine(root) then
+					if Settings.ESPVisCheck and not clearLine(hrp) then
 						color = color:Lerp(Color3.fromRGB(90, 90, 100), 0.6)
 					end
 
@@ -800,7 +1032,7 @@ local function updateESP()
 		if o then o.holder.Visible = show end
 	end
 end
-RunService:BindToRenderStep("MoonAssistESP", Enum.RenderPriority.Camera.Value + 2, updateESP)
+RunService:BindToRenderStep("BlossomESP", Enum.RenderPriority.Camera.Value + 2, updateESP)
 
 ----------------------------------------------------------------
 -- Mouse activity
@@ -816,9 +1048,7 @@ end)
 ----------------------------------------------------------------
 -- Main aim loop
 ----------------------------------------------------------------
-local lockedTarget = nil
-
-RunService:BindToRenderStep("MoonAssist", Enum.RenderPriority.Camera.Value + 1, function(dt)
+RunService:BindToRenderStep("Blossom", Enum.RenderPriority.Camera.Value + 1, function(dt)
 	camera = Workspace.CurrentCamera
 	local vp = camera.ViewportSize
 
@@ -839,17 +1069,19 @@ RunService:BindToRenderStep("MoonAssist", Enum.RenderPriority.Camera.Value + 1, 
 
 	if Settings.MouseActiveOnly and os.clock() - lastMove > Settings.MoveTimeout then return end
 
-	-- Sticky: hold the target while it stays valid, on screen, in range and visible
+	-- Sticky: hold the target while it stays valid, in range, on screen and not fully covered
 	local keep = false
 	if Settings.StickyTarget and lockedTarget and isValid(lockedTarget) then
-		local kp = getAimPart(lockedTarget.Character)
-		local _, on = camera:WorldToViewportPoint(kp.Position)
-		keep = on and (kp.Position - camera.CFrame.Position).Magnitude <= Settings.MaxDistance and isVisible(kp)
+		local kp = resolvePart(lockedTarget.Character)
+		if kp then
+			local _, on = camera:WorldToViewportPoint(kp.Position)
+			keep = on and (kp.Position - camera.CFrame.Position).Magnitude <= Settings.MaxDistance
+		end
 	end
 	if not keep then lockedTarget = getBestTarget() end
 	if not lockedTarget then return end
 
-	local part = getAimPart(lockedTarget.Character)
+	local part = resolvePart(lockedTarget.Character)
 	if not part then lockedTarget = nil return end
 
 	local cf = camera.CFrame
@@ -857,7 +1089,6 @@ RunService:BindToRenderStep("MoonAssist", Enum.RenderPriority.Camera.Value + 1, 
 	local angle = math.deg(math.acos(math.clamp(cf.LookVector:Dot(goal.LookVector), -1, 1)))
 	if angle <= Settings.Deadzone then return end
 
-	-- Frame-rate independent smoothing, with separate yaw / pitch strength
 	local s = math.clamp(Settings.Smoothness, 0.02, 1)
 	local alpha = 1 - (1 - s) ^ (dt * 60)
 	local cp, cyaw = cf:ToOrientation()
@@ -866,4 +1097,4 @@ RunService:BindToRenderStep("MoonAssist", Enum.RenderPriority.Camera.Value + 1, 
 	local newYaw = cyaw + dyaw * alpha * (Settings.HStrength / 100)
 	local newPitch = cp + (gp - cp) * alpha * (Settings.VStrength / 100)
 	camera.CFrame = CFrame.new(cf.Position) * CFrame.fromOrientation(newPitch, newYaw, 0)
-end) 
+end)
