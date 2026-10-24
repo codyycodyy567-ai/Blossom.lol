@@ -13,22 +13,28 @@
 
 https://headless-gifinqsfcas-codyycodyy567-140d.wix-site-host.com/?utm_source=chatgpt.com
 
-BLOSSOM.LOL
 
-Update 1.1
-Removed-
-none
-bug fixes-
-Wall check has finally been fixed
-added-
-some changes to the visuals
-added a HUD
-improved the fog
-added a spinning circle thingy to whenever you're Aimbotting
-improved the generality of the aimbot a lot more better
+# Blossom Update Log
 
-More updates soon on Blossom
+A fresh update for Blossom, bringing improved functionality, refined visuals, and more features to come.
 
-Petal.lol
+### Aimbot Improvements
+- Fixed Wall Check
+- Fixed Fog Issues
+- Fixed the Aimbot Not Working Properly
+- Improved Overall Aimbot Functionality
 
-Coming soon.
+### New Additions
+- Added a new spinning effect above the torso
+- Added new HUDs
+- Further polished the overall experience
+
+### Coming Soon
+- More visuals are currently in development
+- Additional improvements and refinements are on the way
+
+---
+
+**The Blossom experience keeps growing. More polish, more features, and more to come.**
+
+*Stay tuned for the next update.*
