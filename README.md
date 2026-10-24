@@ -12,3 +12,23 @@
 
 
 https://headless-gifinqsfcas-codyycodyy567-140d.wix-site-host.com/?utm_source=chatgpt.com
+
+BLOSSOM.LOL
+
+Update 1.1
+Removed-
+none
+bug fixes-
+Wall check has finally been fixed
+added-
+some changes to the visuals
+added a HUD
+improved the fog
+added a spinning circle thingy to whenever you're Aimbotting
+improved the generality of the aimbot a lot more better
+
+More updates soon on Blossom
+
+Petal.lol
+
+Coming soon.
