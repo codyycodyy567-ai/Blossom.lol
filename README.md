@@ -37,3 +37,5 @@ A fresh update for Blossom, bringing improved functionality, refined visuals, an
 **The Blossom experience keeps growing. More polish, more features, and more to come.**
 
 *Stay tuned for the next update.*
+
+Additional thing I added was updated UI stuff, so it's actually update 1.2
