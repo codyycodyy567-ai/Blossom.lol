@@ -13,29 +13,29 @@ completely undetected, tested in multiple anti-cheats if you have the right conf
 
 
 
-# Blossom Update Log
+# Blossom — Update Log
 
-A fresh update for Blossom, bringing improved functionality, refined visuals, and more features to come.
+*A new wave of improvements has arrived. More refinement, more visuals, and something much bigger on the horizon.*
 
 ### Aimbot Improvements
-- Fixed Wall Check
-- Fixed Fog Issues
-- Fixed the Aimbot Not Working Properly
-- Improved Overall Aimbot Functionality
+- Improved prediction for smoother, more accurate targeting.
+- Refined ease-in for smoother target transitions.
+- Wall check fixed for now.
+- Additional aimbot improvements and refinements.
 
-### New Additions
-- Added a new spinning effect above the torso
-- Added new HUDs
-- Further polished the overall experience
+### Visual Updates
+- Added orbiting orbs.
+- Introduced additional visual improvements.
+- More visual changes and additions are included in this update. Explore Blossom to discover them.
 
-### Coming Soon
-- More visuals are currently in development
-- Additional improvements and refinements are on the way
+### UI Improvements
+- Added a Target HUD.
+- Added a Music Player HUD.
+- Additional UI refinements for a cleaner experience.
 
----
+### Something Big Is Coming
+Something massive is currently in development.
 
-**The Blossom experience keeps growing. More polish, more features, and more to come.**
+We're working on something new for Blossom, and it's going to be worth the wait.
 
-*Stay tuned for the next update.*
-
-Additional thing I added was updated UI stuff, so it's actually update 1.2
+**Stay tuned. Blossom is only getting started.**
